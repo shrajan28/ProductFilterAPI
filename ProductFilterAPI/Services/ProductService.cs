@@ -1,11 +1,10 @@
-﻿// Services/ProductService.cs
-using ProductFilterAPI.Models;
-using System.Net.Http.Json;
+﻿using ProductFilterAPI.Models;
+using System.Collections.ObjectModel;
 using System.Text.Json;
 
 namespace ProductFilterAPI.Services
 {
-	public class ProductService
+	public class ProductService:IProductService
 	{
 		private readonly HttpClient _httpClient;
 		private readonly ILogger<ProductService> _logger;
@@ -17,45 +16,28 @@ namespace ProductFilterAPI.Services
 			_logger = logger;
 		}
 
-
 		public async Task<ProductList> GetProductsAsync()
 		{
-			_logger.LogInformation("Fetching products from external API: {ProductUrl}", ProductUrl);
+			var response = await _httpClient.GetAsync(ProductUrl);
+			response.EnsureSuccessStatusCode();
 
-			try
+			// Read the response content as a string for logging
+			var jsonResponse = await response.Content.ReadAsStringAsync();
+			_logger.LogInformation("Full API response from {Url}: {Response}", ProductUrl, jsonResponse);
+
+			// Deserialize the JSON content to ProductList
+			var productList = JsonSerializer.Deserialize<ProductList>(jsonResponse, new JsonSerializerOptions
 			{
-				var response = await _httpClient.GetAsync(ProductUrl);
-				if (response.IsSuccessStatusCode)
-				{
-					_logger.LogInformation("Received successful response from {ProductUrl}", ProductUrl);
-					// Read the content as a string
-					var jsonString = await response.Content.ReadAsStringAsync();
+				PropertyNameCaseInsensitive = true
+			});
 
-					// Deserialize the JSON string into a list of Product objects
-					var products = JsonSerializer.Deserialize<ProductList>(jsonString, new JsonSerializerOptions
-					{
-						PropertyNameCaseInsensitive = true
-					});
-					_logger.LogInformation($"Deserialized {products.Products.Count} products");
-
-					// Return the deserialized list
-					return products ?? new ProductList();
-				}
-				else
-				{
-					_logger.LogWarning("Failed to fetch products. Status code: {StatusCode}", response.StatusCode);
-					return new ProductList();
-				}
-				// Return an empty list if the response is not successful
-				
-			}
-			catch (Exception ex)
+			// Ensure Products is initialized as a Collection if null
+			if (productList?.Products == null)
 			{
-				_logger.LogError(ex, "An error occurred while fetching products from {ProductUrl}", ProductUrl);
-				
-
-				return new ProductList();
+				productList.Products = new Collection<Product>();
 			}
+
+			return productList;
 		}
 	}
 }

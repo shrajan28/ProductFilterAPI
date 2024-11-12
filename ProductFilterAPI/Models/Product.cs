@@ -4,6 +4,7 @@
 
 
 // Models/FilterInfo.cs
+using System.Collections.ObjectModel;
 using System.Text.Json.Serialization;
 
 namespace ProductFilterAPI.Models
@@ -15,7 +16,7 @@ namespace ProductFilterAPI.Models
 	[JsonSerializable(typeof(List<Product>))]
 	public class ProductList
 	{
-		public List<Product> Products { get; set; }
+		public Collection<Product> Products { get; set; }
 	}
 	[JsonSerializable(typeof(Product))]
 	public class Product

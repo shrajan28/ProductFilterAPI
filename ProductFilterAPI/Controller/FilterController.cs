@@ -1,10 +1,7 @@
-﻿// Controllers/FilterController.cs
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using ProductFilterAPI.Models;
 using ProductFilterAPI.Services;
-using System.Linq;
-using System.Text.Json.Serialization;
-using System.Text.RegularExpressions;
+using System.Collections.ObjectModel;
 
 namespace ProductFilterAPI.Controllers
 {
@@ -12,13 +9,14 @@ namespace ProductFilterAPI.Controllers
 	[Route("[controller]")]
 	public class FilterController : ControllerBase
 	{
-		private readonly ProductService _productService;
+		private readonly IProductService _productService; 
 		private readonly ILogger<FilterController> _logger;
 		private static readonly HashSet<string> StopWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-	{
-		"the", "is", "and", "of", "a", "in", "to", "for", "with", "on", "that", "this", "it", "by", "an", "as", "at"
-	};
-		public FilterController(ProductService productService,ILogger<FilterController> logger)
+		{
+			"the", "is", "and", "of", "a", "in", "to", "for", "with", "on", "that", "this", "it", "by", "an", "as", "at"
+		};
+
+		public FilterController(IProductService productService, ILogger<FilterController> logger)
 		{
 			_productService = productService;
 			_logger = logger;
@@ -31,19 +29,25 @@ namespace ProductFilterAPI.Controllers
 			[FromQuery] string? size,
 			[FromQuery] string? highlight)
 		{
+			string? username = HttpContext.Items["Username"] as string;
+
+			if (username != null)
+			{
+				_logger.LogInformation("Processing request for user: {Username}", username);
+			}
 			_logger.LogInformation("Received filter request with parameters: minprice={MinPrice}, maxprice={MaxPrice}, size={Size}, highlight={Highlight}",
 				minprice, maxprice, size, highlight);
 
 			var productsList = await _productService.GetProductsAsync();
 			var products = productsList.Products;
 
-			// Filter products
+			// Convert to a filtered collection
 			if (minprice.HasValue)
-				products = products.Where(p => p.Price >= minprice.Value).ToList();
+				products = new Collection<Product>(products.Where(p => p.Price >= minprice.Value).ToList());
 			if (maxprice.HasValue)
-				products = products.Where(p => p.Price <= maxprice.Value).ToList();
+				products = new Collection<Product>(products.Where(p => p.Price <= maxprice.Value).ToList());
 			if (!string.IsNullOrEmpty(size))
-				products = products.Where(p => p.Sizes.Contains(size, StringComparer.OrdinalIgnoreCase)).ToList();
+				products = new Collection<Product>(products.Where(p => p.Sizes.Contains(size, StringComparer.OrdinalIgnoreCase)).ToList());
 
 			_logger.LogInformation("Filtered products count: {Count}", products.Count);
 
@@ -56,33 +60,45 @@ namespace ProductFilterAPI.Controllers
 				var sizes = products.SelectMany(p => p.Sizes).Distinct().ToList();
 				var commonWords = GetMostCommonWords(products);
 
-
 				filterInfo.MinPrice = minPrice;
 				filterInfo.MaxPrice = maxPrice;
 				filterInfo.Sizes = sizes;
 				filterInfo.CommonWords = commonWords;
-				
 			}
 
 			_logger.LogInformation("Generated filter object with minPrice={MinPrice}, maxPrice={MaxPrice}, sizes={Sizes}",
-					filterInfo.MinPrice, filterInfo.MaxPrice, string.Join(", ", filterInfo.Sizes));
+				filterInfo.MinPrice, filterInfo.MaxPrice, string.Join(", ", filterInfo.Sizes));
+
 			// Highlight words
 			if (!string.IsNullOrEmpty(highlight))
 			{
 				var wordsToHighlight = highlight.Split(',');
 				foreach (var word in wordsToHighlight)
 				{
-					products.ForEach(p =>
+					foreach (var product in products)
 					{
-						if (!string.IsNullOrWhiteSpace(p.Description))
+						if (!string.IsNullOrWhiteSpace(product.Description))
 						{
-							p.Description = Regex.Replace(p.Description, $"\\b{Regex.Escape(word)}\\b", $"<em>{word}</em>", RegexOptions.IgnoreCase);
+							product.Description = HighlightWordsInDescription(product.Description, word);
 						}
-					});
+					}
 				}
 			}
 
-			return Ok(new { Product=products,FilterOptions=filterInfo});
+			return Ok(new { Product = products, FilterOptions = filterInfo });
+		}
+
+		private static string HighlightWordsInDescription(string description, string wordToHighlight)
+		{
+			var words = description.Split(' ');
+			for (int i = 0; i < words.Length; i++)
+			{
+				if (string.Equals(words[i], wordToHighlight, StringComparison.OrdinalIgnoreCase))
+				{
+					words[i] = $"<em>{words[i]}</em>";
+				}
+			}
+			return string.Join(' ', words);
 		}
 
 		private static List<string> GetMostCommonWords(IEnumerable<Product> products, int count = 10)
@@ -91,25 +107,22 @@ namespace ProductFilterAPI.Controllers
 
 			foreach (var product in products)
 			{
-				// Split the description into words and filter out non-alphabetic characters
-				var words = Regex.Split(product.Description, @"\W+");
+				var words = product.Description.Split(' ');
 
 				foreach (var word in words)
 				{
 					if (string.IsNullOrWhiteSpace(word)) continue;
 
-					// Exclude stop words
 					if (StopWords.Contains(word)) continue;
 
-					// Count the frequency of each word
-					if (wordFrequency.ContainsKey(word))
-						wordFrequency[word]++;
+					var cleanWord = new string(word.Where(char.IsLetterOrDigit).ToArray());
+					if (wordFrequency.ContainsKey(cleanWord))
+						wordFrequency[cleanWord]++;
 					else
-						wordFrequency[word] = 1;
+						wordFrequency[cleanWord] = 1;
 				}
 			}
 
-			// Order words by frequency and select the top `count` words
 			return wordFrequency
 				.OrderByDescending(kv => kv.Value)
 				.Take(count)
