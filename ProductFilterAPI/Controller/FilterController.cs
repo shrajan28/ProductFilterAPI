@@ -29,12 +29,12 @@ namespace ProductFilterAPI.Controllers
 			[FromQuery] string? size,
 			[FromQuery] string? highlight)
 		{
-			string? username = HttpContext.Items["Username"] as string;
+			//string? username = HttpContext.Items["Username"] as string;
 
-			if (username != null)
-			{
-				_logger.LogInformation("Processing request for user: {Username}", username);
-			}
+			//if (username != null)
+			//{
+			//	_logger.LogInformation("Processing request for user: {Username}", username);
+			//}
 			_logger.LogInformation("Received filter request with parameters: minprice={MinPrice}, maxprice={MaxPrice}, size={Size}, highlight={Highlight}",
 				minprice, maxprice, size, highlight);
 
@@ -85,7 +85,7 @@ namespace ProductFilterAPI.Controllers
 				}
 			}
 
-			return Ok(new { Product = products, FilterOptions = filterInfo });
+			return Ok(new FilteredProductResponse { Product = products, FilterOptions = filterInfo });
 		}
 
 		private static string HighlightWordsInDescription(string description, string wordToHighlight)
